@@ -97,3 +97,4 @@ export default function ApprovalModal({ request, onApprove, onReject }) {
     </div>
   );
 }
+

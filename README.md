@@ -141,3 +141,4 @@ swift run
    - Mouse clicks, movements, scrolls, and keystrokes are transmitted instantly via WebRTC DataChannel (or WebSocket relay fallback) and executed on the host.
 5. **Termination**:
    - Either the host or controller can click **Disconnect** at any time to immediately tear down the session.
+

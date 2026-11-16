@@ -35,19 +35,24 @@ public class ScreenCaptureManager: NSObject, SCStreamOutput, SCStreamDelegate {
 
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let config = SCStreamConfiguration()
-        config.width = display.width
-        config.height = display.height
-        config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
-        config.queueDepth = 5
+
+        // Ultra-low latency resolution scaling (1280 max width for instant encoding)
+        let targetWidth = min(display.width, 1280)
+        let targetHeight = Int(Double(targetWidth) / (Double(display.width) / Double(display.height)))
+
+        config.width = targetWidth
+        config.height = targetHeight
+        config.minimumFrameInterval = CMTime(value: 1, timescale: 60) // 60 FPS
+        config.queueDepth = 1 // Zero buffer lag (always latest frame)
         config.showsCursor = true
 
         let newStream = SCStream(filter: filter, configuration: config, delegate: self)
-        try newStream.addStreamOutput(self, type: .screen, sampleHandlerQueue: DispatchQueue(label: "com.remotelink.screencapture"))
+        try newStream.addStreamOutput(self, type: .screen, sampleHandlerQueue: DispatchQueue(label: "com.remotelink.screencapture", qos: .userInteractive))
         try await newStream.startCapture()
 
         self.stream = newStream
         self.isCapturing = true
-        print("[ScreenCapture] Screen capture started successfully (\(display.width)x\(display.height) @ \(fps) FPS)")
+        print("[ScreenCapture] Ultra-low latency 60 FPS capture started (\(targetWidth)x\(targetHeight), queueDepth: 1)")
     }
 
     public func stopCapture() async {

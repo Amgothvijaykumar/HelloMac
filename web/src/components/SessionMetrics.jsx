@@ -68,3 +68,4 @@ export default function SessionMetrics({ metrics, resolution, isDataChannelOpen 
     </div>
   );
 }
+

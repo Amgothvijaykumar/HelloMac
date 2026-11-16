@@ -7,6 +7,7 @@ import MobileControls from './MobileControls';
 export default function ControllerView({
   session,
   remoteStream,
+  screenFrame,
   metrics,
   isDataChannelOpen,
   onSendInput,
@@ -14,6 +15,7 @@ export default function ControllerView({
 }) {
   const containerRef = useRef(null);
   const videoRef = useRef(null);
+  const canvasRef = useRef(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showMobileControls, setShowMobileControls] = useState(false);
   const [qualityPreset, setQualityPreset] = useState('high'); // 'high' | 'balanced' | 'fast'
@@ -27,6 +29,27 @@ export default function ControllerView({
       videoRef.current.play().catch(e => console.log('Autoplay handled:', e));
     }
   }, [remoteStream]);
+
+  // Render direct frame stream onto canvas (for native macOS host or fallback)
+  useEffect(() => {
+    if (screenFrame && canvasRef.current) {
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+      img.onload = () => {
+        if (canvas.width !== img.width || canvas.height !== img.height) {
+          canvas.width = img.width;
+          canvas.height = img.height;
+          setRemoteResolution({ width: img.width, height: img.height });
+        }
+        ctx.drawImage(img, 0, 0);
+      };
+      img.src = `data:image/jpeg;base64,${screenFrame}`;
+    }
+  }, [screenFrame]);
+
+  // Helper to get active rendered surface (video or canvas)
+  const getActiveElement = () => videoRef.current || canvasRef.current;
 
   // Read video resolution when stream loads
   const handleLoadedMetadata = () => {
@@ -50,7 +73,7 @@ export default function ControllerView({
 
   // Mouse event handlers
   const handleMouseMove = (e) => {
-    const coords = getNormalizedCoordinates(e, videoRef.current);
+    const coords = getNormalizedCoordinates(e, getActiveElement());
     if (!coords) return;
     onSendInput({
       type: 'mouse_move',
@@ -61,7 +84,7 @@ export default function ControllerView({
 
   const handleMouseDown = (e) => {
     e.preventDefault();
-    const coords = getNormalizedCoordinates(e, videoRef.current);
+    const coords = getNormalizedCoordinates(e, getActiveElement());
     if (!coords) return;
     onSendInput({
       type: 'mouse_down',
@@ -73,7 +96,7 @@ export default function ControllerView({
 
   const handleMouseUp = (e) => {
     e.preventDefault();
-    const coords = getNormalizedCoordinates(e, videoRef.current);
+    const coords = getNormalizedCoordinates(e, getActiveElement());
     if (!coords) return;
     onSendInput({
       type: 'mouse_up',
@@ -85,7 +108,7 @@ export default function ControllerView({
 
   const handleContextMenu = (e) => {
     e.preventDefault(); // Don't trigger browser context menu
-    const coords = getNormalizedCoordinates(e, videoRef.current);
+    const coords = getNormalizedCoordinates(e, getActiveElement());
     if (!coords) return;
     onSendInput({
       type: 'mouse_click',
@@ -96,7 +119,7 @@ export default function ControllerView({
   };
 
   const handleDoubleClick = (e) => {
-    const coords = getNormalizedCoordinates(e, videoRef.current);
+    const coords = getNormalizedCoordinates(e, getActiveElement());
     if (!coords) return;
     onSendInput({
       type: 'mouse_double_click',
@@ -108,7 +131,7 @@ export default function ControllerView({
 
   const handleWheel = (e) => {
     e.preventDefault();
-    const coords = getNormalizedCoordinates(e, videoRef.current);
+    const coords = getNormalizedCoordinates(e, getActiveElement());
     onSendInput({
       type: 'wheel',
       deltaX: e.deltaX,
@@ -173,7 +196,7 @@ export default function ControllerView({
         isDataChannelOpen={isDataChannelOpen}
       />
 
-      {/* Main Video Stream Display Canvas */}
+      {/* Main Video / Canvas Stream Display Canvas */}
       <div className="flex-1 w-full h-full flex items-center justify-center relative cursor-crosshair">
         {remoteStream ? (
           <video
@@ -189,10 +212,21 @@ export default function ControllerView({
             onWheel={handleWheel}
             className="w-full h-full object-contain pointer-events-auto"
           />
+        ) : screenFrame ? (
+          <canvas
+            ref={canvasRef}
+            onMouseMove={handleMouseMove}
+            onMouseDown={handleMouseDown}
+            onMouseUp={handleMouseUp}
+            onContextMenu={handleContextMenu}
+            onDoubleClick={handleDoubleClick}
+            onWheel={handleWheel}
+            className="w-full h-full object-contain pointer-events-auto"
+          />
         ) : (
           <div className="flex flex-col items-center justify-center space-y-4 text-slate-400">
             <div className="h-12 w-12 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
-            <p className="text-sm font-medium">Waiting for video stream from host...</p>
+            <p className="text-sm font-medium">Waiting for screen stream from host...</p>
           </div>
         )}
       </div>
@@ -293,3 +327,4 @@ export default function ControllerView({
     </div>
   );
 }
+

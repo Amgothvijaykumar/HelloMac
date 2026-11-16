@@ -3,7 +3,7 @@ import { WebSocketServer } from 'ws';
 
 const PORT = process.env.PORT || 3000;
 
-// Ultra-minimal Full-Screen Desktop Surface (Zero UI Elements)
+// Ultra-Low Latency Binary Direct Remote Desktop
 const CLIENT_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -36,28 +36,33 @@ const CLIENT_HTML = `<!DOCTYPE html>
   <canvas id="screen"></canvas>
   <script>
     const canvas = document.getElementById('screen');
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
     let ws = null;
-    const lastImg = new Image();
+    let isDecoding = false;
 
     function connect() {
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       ws = new WebSocket(protocol + '//' + location.host);
+      ws.binaryType = 'arraybuffer';
 
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'frame' && data.data) {
-            lastImg.onload = () => {
-              if (canvas.width !== lastImg.width || canvas.height !== lastImg.height) {
-                canvas.width = lastImg.width;
-                canvas.height = lastImg.height;
-              }
-              ctx.drawImage(lastImg, 0, 0);
-            };
-            lastImg.src = 'data:image/jpeg;base64,' + data.data;
+      ws.onmessage = async (event) => {
+        if (event.data instanceof ArrayBuffer) {
+          if (isDecoding) return; // Drop frame if previous is still rendering
+          isDecoding = true;
+          try {
+            const blob = new Blob([event.data], { type: 'image/jpeg' });
+            const bitmap = await createImageBitmap(blob);
+            if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
+              canvas.width = bitmap.width;
+              canvas.height = bitmap.height;
+            }
+            ctx.drawImage(bitmap, 0, 0);
+            bitmap.close();
+          } catch(e) {}
+          finally {
+            isDecoding = false;
           }
-        } catch(e) {}
+        }
       };
 
       ws.onclose = () => {
@@ -69,7 +74,7 @@ const CLIENT_HTML = `<!DOCTYPE html>
 
     function getNormalizedCoords(clientX, clientY) {
       const rect = canvas.getBoundingClientRect();
-      const videoAspect = (canvas.width || 1920) / (canvas.height || 1080);
+      const videoAspect = (canvas.width || 1280) / (canvas.height || 800);
       const containerAspect = rect.width / rect.height;
 
       let renderWidth = rect.width;
@@ -194,24 +199,26 @@ const wss = new WebSocketServer({ server });
 wss.on('connection', (ws) => {
   let isHost = false;
 
-  ws.on('message', (msgBuffer) => {
+  ws.on('message', (msgBuffer, isBinary) => {
+    // 1. Binary Screen Frame from Mac Host
+    if (isBinary || (msgBuffer instanceof Buffer && msgBuffer.length > 500)) {
+      for (const ctrl of controllerSockets) {
+        // Zero-lag drop: if the socket queue has unread bytes, skip to latest frame
+        if (ctrl.readyState === ws.OPEN && ctrl.bufferedAmount < 65536) {
+          ctrl.send(msgBuffer, { binary: true });
+        }
+      }
+      return;
+    }
+
+    // 2. Control Messages
     try {
       const data = JSON.parse(msgBuffer.toString());
 
       if (data.type === 'register_host') {
         isHost = true;
         hostSocket = ws;
-        console.log('🟢 [RemoteLink] Mac Host connected and streaming!');
-        return;
-      }
-
-      if (data.type === 'screen_frame') {
-        const framePayload = JSON.stringify({ type: 'frame', data: data.payload?.frame });
-        for (const ctrl of controllerSockets) {
-          if (ctrl.readyState === ws.OPEN) {
-            ctrl.send(framePayload);
-          }
-        }
+        console.log('🟢 [RemoteLink] Mac Host registered (Direct Binary 60 FPS)');
         return;
       }
 
@@ -223,9 +230,7 @@ wss.on('connection', (ws) => {
           }));
         }
       }
-    } catch (e) {
-      console.error('Message error:', e);
-    }
+    } catch (_) {}
   });
 
   controllerSockets.add(ws);
@@ -242,7 +247,7 @@ wss.on('connection', (ws) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`\n======================================================`);
-  console.log(`🚀 RemoteLink Server Running (Pure Screen Stream)`);
+  console.log(`🚀 Ultra-Low Latency RemoteLink Server Running`);
   console.log(`👉 http://0.0.0.0:${PORT}`);
   console.log(`======================================================\n`);
 });

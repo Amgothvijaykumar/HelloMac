@@ -62,3 +62,4 @@ export function mapKeyboardEvent(event, type) {
     }
   };
 }
+

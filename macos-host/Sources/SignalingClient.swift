@@ -2,6 +2,7 @@ import Foundation
 import CoreImage
 import CoreMedia
 import CoreVideo
+import ImageIO
 
 /// WebSocket client that interfaces with the RemoteLink server
 public class SignalingClient: NSObject {
@@ -24,10 +25,10 @@ public class SignalingClient: NSObject {
     private func setupFrameStreaming() {
         ScreenCaptureManager.shared.onFrameCaptured = { [weak self] sampleBuffer in
             guard let self = self, self.isConnected else { return }
-            guard !self.isSendingFrame else { return }
+            guard !self.isSendingFrame else { return } // Drop frame if previous is still transmitting
 
             let now = Date().timeIntervalSince1970
-            guard (now - self.lastFrameTime) >= 0.033 else { return } // 30 FPS cap
+            guard (now - self.lastFrameTime) >= 0.016 else { return } // 60 FPS cap (16.6ms)
             self.lastFrameTime = now
 
             guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
@@ -36,17 +37,17 @@ public class SignalingClient: NSObject {
             DispatchQueue.global(qos: .userInteractive).async {
                 let ciImage = CIImage(cvPixelBuffer: imageBuffer)
                 let colorSpace = CGColorSpaceCreateDeviceRGB()
-                if let jpegData = self.ciContext.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [:]) {
-                    let base64String = jpegData.base64EncodedString()
-                    let frameMsg: [String: Any] = [
-                        "type": "screen_frame",
-                        "payload": [
-                            "frame": base64String
-                        ]
-                    ]
-                    self.send(frameMsg)
+                let options: [CIImageRepresentationOption: Any] = [
+                    CIImageRepresentationOption(rawValue: "kCGImageDestinationLossyFactor"): 0.45
+                ]
+                if let jpegData = self.ciContext.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: options) {
+                    // Send pure binary frame (Zero base64 overhead!)
+                    self.webSocketTask?.send(.data(jpegData)) { _ in
+                        self.isSendingFrame = false
+                    }
+                } else {
+                    self.isSendingFrame = false
                 }
-                self.isSendingFrame = false
             }
         }
     }

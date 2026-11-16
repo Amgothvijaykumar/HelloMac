@@ -23,6 +23,7 @@ export default function App() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionError, setConnectionError] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
+  const [screenFrame, setScreenFrame] = useState(null);
   const [metrics, setMetrics] = useState({ fps: 30, bitrateKbps: 0, packetsLost: 0, rttMs: 0 });
   const [isDataChannelOpen, setIsDataChannelOpen] = useState(false);
 
@@ -30,6 +31,11 @@ export default function App() {
   const [activeSession, setActiveSession] = useState(null); // { id, isHost, hostId, controllerName, ... }
 
   const webrtcRef = useRef(null);
+  const localStreamRef = useRef(null);
+
+  useEffect(() => {
+    localStreamRef.current = localStream;
+  }, [localStream]);
 
   // Connect to signaling server on mount
   useEffect(() => {
@@ -90,7 +96,10 @@ export default function App() {
         }
       });
       rtc.setIceServers(data.iceServers);
-      rtc.localStream = localStream;
+      const curStream = localStreamRef.current || localStream;
+      if (curStream) {
+        rtc.addTracksFromStream(curStream);
+      }
       rtc.initPeerConnection();
       webrtcRef.current = rtc;
     });
@@ -142,6 +151,11 @@ export default function App() {
       setRemoteInputsOnHost((prev) => [...prev.slice(-20), input]);
     });
 
+    // Screen frames received from native host or fallback
+    const unsubFrame = signaling.on('screen_frame', ({ frame }) => {
+      setScreenFrame(frame);
+    });
+
     // Session terminated
     const unsubTerm = signaling.on('session_terminated', ({ reason }) => {
       if (webrtcRef.current) {
@@ -164,6 +178,7 @@ export default function App() {
       unsubHostStart();
       unsubCtrlResp();
       unsubInput();
+      unsubFrame();
       unsubTerm();
     };
   }, [localStream]);
@@ -198,12 +213,11 @@ export default function App() {
       });
 
       setLocalStream(stream);
+      localStreamRef.current = stream;
 
       // If session is already open, add tracks
-      if (webrtcRef.current && webrtcRef.current.peerConnection) {
-        stream.getTracks().forEach((track) => {
-          webrtcRef.current.peerConnection.addTrack(track, stream);
-        });
+      if (webrtcRef.current) {
+        webrtcRef.current.addTracksFromStream(stream);
       }
 
       stream.getVideoTracks()[0].onended = () => {
@@ -219,11 +233,39 @@ export default function App() {
     if (localStream) {
       localStream.getTracks().forEach((t) => t.stop());
       setLocalStream(null);
+      localStreamRef.current = null;
     }
   };
 
   // Host approval handler
-  const handleApproveRequest = (requestId) => {
+  const handleApproveRequest = async (requestId) => {
+    let stream = localStreamRef.current || localStream;
+    if (!stream) {
+      try {
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: {
+            cursor: 'always',
+            frameRate: { ideal: 60, max: 60 }
+          },
+          audio: false
+        });
+        setLocalStream(stream);
+        localStreamRef.current = stream;
+        if (webrtcRef.current) {
+          webrtcRef.current.addTracksFromStream(stream);
+        }
+      } catch (err) {
+        console.error('Failed to get display media on approval:', err);
+        signaling.send('respond_connection', {
+          requestId,
+          approved: false,
+          reason: 'Host cancelled screen selection.'
+        });
+        setPendingRequest(null);
+        return;
+      }
+    }
+
     signaling.send('respond_connection', {
       requestId,
       approved: true
@@ -329,6 +371,7 @@ export default function App() {
           <ControllerView
             session={activeSession}
             remoteStream={remoteStream}
+            screenFrame={screenFrame}
             metrics={metrics}
             isDataChannelOpen={isDataChannelOpen}
             onSendInput={handleSendInput}
@@ -348,3 +391,4 @@ export default function App() {
     </div>
   );
 }
+

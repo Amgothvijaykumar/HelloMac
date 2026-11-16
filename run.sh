@@ -38,3 +38,4 @@ macos-host/.build/debug/remotelink-host &
 HOST_PID=$!
 
 wait
+

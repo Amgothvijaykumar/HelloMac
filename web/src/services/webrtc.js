@@ -83,9 +83,7 @@ export class WebRTCManager {
     if (this.isHost) {
       // Host adds local screen tracks and listens for data channel
       if (this.localStream) {
-        this.localStream.getTracks().forEach((track) => {
-          this.peerConnection.addTrack(track, this.localStream);
-        });
+        this.addTracksFromStream(this.localStream);
       }
 
       this.peerConnection.ondatachannel = (event) => {
@@ -141,6 +139,18 @@ export class WebRTCManager {
     }
   }
 
+  addTracksFromStream(stream) {
+    if (!this.peerConnection || !stream) return;
+    this.localStream = stream;
+    const senders = this.peerConnection.getSenders();
+    stream.getTracks().forEach((track) => {
+      const alreadyAdded = senders.some(s => s.track && s.track.id === track.id);
+      if (!alreadyAdded) {
+        this.peerConnection.addTrack(track, stream);
+      }
+    });
+  }
+
   // Controller initiates WebRTC connection
   async createOffer() {
     this.initPeerConnection();
@@ -161,6 +171,9 @@ export class WebRTCManager {
 
   async handleOffer(signal) {
     this.initPeerConnection();
+    if (this.localStream) {
+      this.addTracksFromStream(this.localStream);
+    }
     await this.peerConnection.setRemoteDescription(new RTCSessionDescription(signal));
 
     // Process queued candidates
@@ -286,3 +299,4 @@ export class WebRTCManager {
     }
   }
 }
+
