@@ -157,9 +157,15 @@ public class SignalingClient: NSObject, URLSessionWebSocketDelegate {
 
         case "key_down", "key_up":
             let isDown = (inputType == "key_down")
-            let keyCode = UInt16(input["keyCode"] as? Int ?? 0)
+            let code = input["code"] as? String
+            let key = input["key"] as? String
             let modifiers = input["modifiers"] as? [String: Bool] ?? [:]
-            InputInjector.shared.sendKey(keyCode: keyCode, isDown: isDown, modifiers: modifiers)
+            InputInjector.shared.sendKey(code: code, key: key, isDown: isDown, modifiers: modifiers)
+
+        case "text_input":
+            if let text = input["text"] as? String {
+                InputInjector.shared.typeText(text)
+            }
 
         default:
             break

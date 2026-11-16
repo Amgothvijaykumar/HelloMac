@@ -30,13 +30,23 @@ const CLIENT_HTML = `<!DOCTYPE html>
       height: 100vh;
       object-fit: contain;
     }
+    #mobile-input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+      top: -100px;
+      left: -100px;
+    }
   </style>
 </head>
 <body>
   <canvas id="screen"></canvas>
+  <input type="text" id="mobile-input" autocomplete="off" autocapitalize="off" spellcheck="false" />
+
   <script>
     const canvas = document.getElementById('screen');
     const ctx = canvas.getContext('2d', { alpha: false });
+    const mobileInput = document.getElementById('mobile-input');
     let ws = null;
     let isDecoding = false;
 
@@ -129,6 +139,7 @@ const CLIENT_HTML = `<!DOCTYPE html>
 
     canvas.addEventListener('mousedown', (e) => {
       e.preventDefault();
+      mobileInput.focus();
       send('mouse_down', { button: e.button, ...getNormalizedCoords(e.clientX, e.clientY) });
     });
 
@@ -156,6 +167,7 @@ const CLIENT_HTML = `<!DOCTYPE html>
         const t = e.touches[0];
         lastTouch = { x: t.clientX, y: t.clientY };
         isTouching = true;
+        mobileInput.focus();
         const coords = getNormalizedCoords(t.clientX, t.clientY);
         send('mouse_move', coords);
         send('mouse_down', { button: 0, ...coords });
@@ -181,11 +193,13 @@ const CLIENT_HTML = `<!DOCTYPE html>
       }
     });
 
-    // Keyboard handlers
+    // Keyboard handlers for Desktop & Laptops
     window.addEventListener('keydown', (e) => {
+      if (['Backspace', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+      }
       send('key_down', {
         key: e.key,
-        keyCode: e.keyCode,
         code: e.code,
         modifiers: { meta: e.metaKey, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey }
       });
@@ -194,10 +208,29 @@ const CLIENT_HTML = `<!DOCTYPE html>
     window.addEventListener('keyup', (e) => {
       send('key_up', {
         key: e.key,
-        keyCode: e.keyCode,
         code: e.code,
         modifiers: { meta: e.metaKey, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey }
       });
+    });
+
+    // Mobile Virtual Keyboard Handling
+    mobileInput.addEventListener('beforeinput', (e) => {
+      if (e.inputType === 'deleteContentBackward') {
+        send('key_down', { key: 'Backspace', code: 'Backspace', modifiers: {} });
+        send('key_up', { key: 'Backspace', code: 'Backspace', modifiers: {} });
+      } else if (e.data) {
+        send('text_input', { text: e.data });
+      }
+    });
+
+    mobileInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Backspace') {
+        send('key_down', { key: 'Backspace', code: 'Backspace', modifiers: {} });
+        send('key_up', { key: 'Backspace', code: 'Backspace', modifiers: {} });
+      } else if (e.key === 'Enter') {
+        send('key_down', { key: 'Enter', code: 'Enter', modifiers: {} });
+        send('key_up', { key: 'Enter', code: 'Enter', modifiers: {} });
+      }
     });
   </script>
 </body>

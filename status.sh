@@ -10,3 +10,4 @@ else
   echo "🔴 RemoteLink is NOT running."
   echo "👉 Start it with: ./start.sh"
 fi
+
