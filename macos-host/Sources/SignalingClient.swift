@@ -5,7 +5,7 @@ import CoreVideo
 import ImageIO
 
 /// WebSocket client that interfaces with the RemoteLink server
-public class SignalingClient: NSObject {
+public class SignalingClient: NSObject, URLSessionWebSocketDelegate {
     private var webSocketTask: URLSessionWebSocketTask?
     private var urlSession: URLSession?
     public var serverURL: URL
@@ -14,21 +14,22 @@ public class SignalingClient: NSObject {
     private let ciContext = CIContext(options: [CIContextOption.useSoftwareRenderer: false])
     private var lastFrameTime: Double = 0
     private var isSendingFrame = false
+    private var frameCount: Int = 0
 
-    public init(serverURL: URL = URL(string: "ws://localhost:3000")!) {
+    public init(serverURL: URL = URL(string: "ws://127.0.0.1:3000")!) {
         self.serverURL = serverURL
         super.init()
-        self.urlSession = URLSession(configuration: .default)
+        self.urlSession = URLSession(configuration: .default, delegate: self, delegateQueue: OperationQueue.main)
         self.setupFrameStreaming()
     }
 
     private func setupFrameStreaming() {
         ScreenCaptureManager.shared.onFrameCaptured = { [weak self] sampleBuffer in
             guard let self = self, self.isConnected else { return }
-            guard !self.isSendingFrame else { return } // Drop frame if previous is still transmitting
+            guard !self.isSendingFrame else { return }
 
             let now = Date().timeIntervalSince1970
-            guard (now - self.lastFrameTime) >= 0.016 else { return } // 60 FPS cap (16.6ms)
+            guard (now - self.lastFrameTime) >= 0.016 else { return } // 60 FPS
             self.lastFrameTime = now
 
             guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
@@ -41,7 +42,10 @@ public class SignalingClient: NSObject {
                     CIImageRepresentationOption(rawValue: "kCGImageDestinationLossyFactor"): 0.45
                 ]
                 if let jpegData = self.ciContext.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: options) {
-                    // Send pure binary frame (Zero base64 overhead!)
+                    self.frameCount += 1
+                    if self.frameCount % 120 == 0 {
+                        print("📡 [Host] Streamed \(self.frameCount) frames (\(jpegData.count / 1024) KB/frame)")
+                    }
                     self.webSocketTask?.send(.data(jpegData)) { _ in
                         self.isSendingFrame = false
                     }
@@ -57,17 +61,26 @@ public class SignalingClient: NSObject {
         let request = URLRequest(url: serverURL)
         webSocketTask = urlSession?.webSocketTask(with: request)
         webSocketTask?.resume()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            self.isConnected = true
-            self.send(["type": "register_host"])
-            print("🚀 [RemoteLink] Registered as Host — Starting Screen Capture...")
-            Task {
-                try? await ScreenCaptureManager.shared.startCapture(fps: 30)
-            }
-        }
-
         listenForMessages()
+    }
+
+    // URLSessionWebSocketDelegate: Called when connection is officially established
+    public func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
+        print("🟢 [Signaling] WebSocket connection established!")
+        self.isConnected = true
+        self.send(["type": "register_host"])
+
+        Task {
+            try? await ScreenCaptureManager.shared.startCapture(fps: 60)
+        }
+    }
+
+    public func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+        print("🔴 [Signaling] WebSocket closed. Reconnecting in 2s...")
+        self.isConnected = false
+        DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
+            self.connect()
+        }
     }
 
     private func listenForMessages() {
@@ -76,7 +89,9 @@ public class SignalingClient: NSObject {
 
             switch result {
             case .failure(let error):
-                print("[Signaling] Connection closed: \(error.localizedDescription)")
+                if self.isConnected {
+                    print("[Signaling] Receive error: \(error.localizedDescription)")
+                }
                 self.isConnected = false
                 DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
                     self.connect()
@@ -86,10 +101,8 @@ public class SignalingClient: NSObject {
                 switch message {
                 case .string(let text):
                     self.handleMessage(text)
-                case .data(let data):
-                    if let text = String(data: data, encoding: .utf8) {
-                        self.handleMessage(text)
-                    }
+                case .data:
+                    break
                 @unknown default:
                     break
                 }

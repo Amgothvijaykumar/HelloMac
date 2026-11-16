@@ -5,6 +5,11 @@ set -e
 LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || ifconfig | grep "inet " | grep -v 127.0.0.1 | awk '{print $2}' | head -n 1)
 PORT=3000
 
+# Free port 3000 if previously occupied
+lsof -ti :${PORT} | xargs kill -9 2>/dev/null || true
+pkill -f "remotelink-host" 2>/dev/null || true
+sleep 0.5
+
 # Cleanup child processes on exit
 cleanup() {
   echo ""

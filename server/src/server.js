@@ -36,7 +36,7 @@ const CLIENT_HTML = `<!DOCTYPE html>
   <canvas id="screen"></canvas>
   <script>
     const canvas = document.getElementById('screen');
-    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    const ctx = canvas.getContext('2d', { alpha: false });
     let ws = null;
     let isDecoding = false;
 
@@ -45,22 +45,39 @@ const CLIENT_HTML = `<!DOCTYPE html>
       ws = new WebSocket(protocol + '//' + location.host);
       ws.binaryType = 'arraybuffer';
 
-      ws.onmessage = async (event) => {
+      ws.onmessage = (event) => {
         if (event.data instanceof ArrayBuffer) {
-          if (isDecoding) return; // Drop frame if previous is still rendering
+          if (isDecoding) return;
           isDecoding = true;
-          try {
-            const blob = new Blob([event.data], { type: 'image/jpeg' });
-            const bitmap = await createImageBitmap(blob);
-            if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
-              canvas.width = bitmap.width;
-              canvas.height = bitmap.height;
-            }
-            ctx.drawImage(bitmap, 0, 0);
-            bitmap.close();
-          } catch(e) {}
-          finally {
-            isDecoding = false;
+
+          const blob = new Blob([event.data], { type: 'image/jpeg' });
+
+          if (window.createImageBitmap) {
+            createImageBitmap(blob)
+              .then(bitmap => {
+                if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
+                  canvas.width = bitmap.width;
+                  canvas.height = bitmap.height;
+                }
+                ctx.drawImage(bitmap, 0, 0);
+                bitmap.close();
+                isDecoding = false;
+              })
+              .catch(() => { isDecoding = false; });
+          } else {
+            const url = URL.createObjectURL(blob);
+            const img = new Image();
+            img.onload = () => {
+              if (canvas.width !== img.width || canvas.height !== img.height) {
+                canvas.width = img.width;
+                canvas.height = img.height;
+              }
+              ctx.drawImage(img, 0, 0);
+              URL.revokeObjectURL(url);
+              isDecoding = false;
+            };
+            img.onerror = () => { isDecoding = false; };
+            img.src = url;
           }
         }
       };
@@ -74,7 +91,7 @@ const CLIENT_HTML = `<!DOCTYPE html>
 
     function getNormalizedCoords(clientX, clientY) {
       const rect = canvas.getBoundingClientRect();
-      const videoAspect = (canvas.width || 1280) / (canvas.height || 800);
+      const videoAspect = (canvas.width || 1280) / (canvas.height || 832);
       const containerAspect = rect.width / rect.height;
 
       let renderWidth = rect.width;
@@ -188,6 +205,7 @@ const CLIENT_HTML = `<!DOCTYPE html>
 
 let hostSocket = null;
 const controllerSockets = new Set();
+let framesForwarded = 0;
 
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -202,9 +220,12 @@ wss.on('connection', (ws) => {
   ws.on('message', (msgBuffer, isBinary) => {
     // 1. Binary Screen Frame from Mac Host
     if (isBinary || (msgBuffer instanceof Buffer && msgBuffer.length > 500)) {
+      framesForwarded++;
+      if (framesForwarded % 120 === 0) {
+        console.log(`📡 [Server] Broadcasted ${framesForwarded} frames to ${controllerSockets.size} active viewers`);
+      }
       for (const ctrl of controllerSockets) {
-        // Zero-lag drop: if the socket queue has unread bytes, skip to latest frame
-        if (ctrl.readyState === ws.OPEN && ctrl.bufferedAmount < 65536) {
+        if (ctrl !== hostSocket && ctrl.readyState === ws.OPEN && ctrl.bufferedAmount < 65536) {
           ctrl.send(msgBuffer, { binary: true });
         }
       }
@@ -218,7 +239,8 @@ wss.on('connection', (ws) => {
       if (data.type === 'register_host') {
         isHost = true;
         hostSocket = ws;
-        console.log('🟢 [RemoteLink] Mac Host registered (Direct Binary 60 FPS)');
+        controllerSockets.delete(ws);
+        console.log('🟢 [RemoteLink] Mac Host registered and streaming live!');
         return;
       }
 
@@ -233,7 +255,9 @@ wss.on('connection', (ws) => {
     } catch (_) {}
   });
 
+  // Track as controller unless identified as host
   controllerSockets.add(ws);
+  console.log(`📱 [RemoteLink] Client connected (${controllerSockets.size} active viewers)`);
 
   ws.on('close', () => {
     if (isHost && hostSocket === ws) {
@@ -241,6 +265,7 @@ wss.on('connection', (ws) => {
       console.log('🔴 [RemoteLink] Mac Host disconnected');
     } else {
       controllerSockets.delete(ws);
+      console.log(`📱 [RemoteLink] Client disconnected (${controllerSockets.size} active viewers)`);
     }
   });
 });

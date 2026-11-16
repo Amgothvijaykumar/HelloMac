@@ -43,7 +43,7 @@ public class ScreenCaptureManager: NSObject, SCStreamOutput, SCStreamDelegate {
         config.width = targetWidth
         config.height = targetHeight
         config.minimumFrameInterval = CMTime(value: 1, timescale: 60) // 60 FPS
-        config.queueDepth = 1 // Zero buffer lag (always latest frame)
+        config.queueDepth = 3 // Optimal Metal surface recycling pool
         config.showsCursor = true
 
         let newStream = SCStream(filter: filter, configuration: config, delegate: self)
