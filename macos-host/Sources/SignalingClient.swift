@@ -1,19 +1,54 @@
 import Foundation
+import CoreImage
+import CoreMedia
+import CoreVideo
 
-/// WebSocket client that interfaces with the RemoteLink signaling server
+/// WebSocket client that interfaces with the RemoteLink server
 public class SignalingClient: NSObject {
     private var webSocketTask: URLSessionWebSocketTask?
     private var urlSession: URLSession?
     public var serverURL: URL
-
-    public var hostId: String?
-    public var connectionCode: String?
     public var isConnected = false
 
-    public init(serverURL: URL = URL(string: "ws://localhost:8080")!) {
+    private let ciContext = CIContext(options: [CIContextOption.useSoftwareRenderer: false])
+    private var lastFrameTime: Double = 0
+    private var isSendingFrame = false
+
+    public init(serverURL: URL = URL(string: "ws://localhost:3000")!) {
         self.serverURL = serverURL
         super.init()
         self.urlSession = URLSession(configuration: .default)
+        self.setupFrameStreaming()
+    }
+
+    private func setupFrameStreaming() {
+        ScreenCaptureManager.shared.onFrameCaptured = { [weak self] sampleBuffer in
+            guard let self = self, self.isConnected else { return }
+            guard !self.isSendingFrame else { return }
+
+            let now = Date().timeIntervalSince1970
+            guard (now - self.lastFrameTime) >= 0.033 else { return } // 30 FPS cap
+            self.lastFrameTime = now
+
+            guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+            self.isSendingFrame = true
+
+            DispatchQueue.global(qos: .userInteractive).async {
+                let ciImage = CIImage(cvPixelBuffer: imageBuffer)
+                let colorSpace = CGColorSpaceCreateDeviceRGB()
+                if let jpegData = self.ciContext.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [:]) {
+                    let base64String = jpegData.base64EncodedString()
+                    let frameMsg: [String: Any] = [
+                        "type": "screen_frame",
+                        "payload": [
+                            "frame": base64String
+                        ]
+                    ]
+                    self.send(frameMsg)
+                }
+                self.isSendingFrame = false
+            }
+        }
     }
 
     public func connect() {
@@ -21,6 +56,16 @@ public class SignalingClient: NSObject {
         let request = URLRequest(url: serverURL)
         webSocketTask = urlSession?.webSocketTask(with: request)
         webSocketTask?.resume()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            self.isConnected = true
+            self.send(["type": "register_host"])
+            print("🚀 [RemoteLink] Registered as Host — Starting Screen Capture...")
+            Task {
+                try? await ScreenCaptureManager.shared.startCapture(fps: 30)
+            }
+        }
+
         listenForMessages()
     }
 
@@ -30,10 +75,9 @@ public class SignalingClient: NSObject {
 
             switch result {
             case .failure(let error):
-                print("[Signaling] Disconnected or error: \(error.localizedDescription)")
+                print("[Signaling] Connection closed: \(error.localizedDescription)")
                 self.isConnected = false
-                // Auto-reconnect after 3 seconds
-                DispatchQueue.global().asyncAfter(deadline: .now() + 3.0) {
+                DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
                     self.connect()
                 }
 
@@ -60,83 +104,9 @@ public class SignalingClient: NSObject {
             return
         }
 
-        let payload = json["payload"] as? [String: Any] ?? [:]
-
-        switch type {
-        case "host_registered":
-            self.isConnected = true
-            self.hostId = payload["hostId"] as? String
-            self.connectionCode = payload["connectionCode"] as? String
-
-            print("\n=================================================")
-            print("🚀  RemoteLink macOS Host Online!")
-            print("🔑  Connection Code:  \(self.connectionCode ?? "---")")
-            print("💻  Device ID:        \(payload["deviceId"] ?? "")")
-            print("🌐  Controller URL:   http://localhost:3000?code=\(self.connectionCode ?? "")")
-            print("=================================================\n")
-
-        case "incoming_connection_request":
-            let reqId = payload["requestId"] as? String ?? ""
-            let controllerName = payload["controllerName"] as? String ?? "Web Controller"
-            let controllerType = payload["controllerType"] as? String ?? "web"
-
-            print("\n🔔  INCOMING CONNECTION REQUEST!")
-            print("    Controller: \(controllerName) (\(controllerType))")
-            print("    Approving session and preparing screen stream...\n")
-
-            // Auto-approve or trigger system prompt
-            respondToRequest(requestId: reqId, approved: true)
-
-        case "session_started":
-            let sessionId = payload["sessionId"] as? String ?? ""
-            let ctrlName = payload["controllerName"] as? String ?? "Controller"
-            print("🟢  Active session established with \(ctrlName) [\(sessionId)]")
-
-            Task {
-                try? await ScreenCaptureManager.shared.startCapture(fps: 30)
-            }
-
-        case "remote_input":
-            if let input = payload["input"] as? [String: Any] {
-                self.processRemoteInput(input)
-            }
-
-        case "session_terminated":
-            print("🔴  Session terminated: \(payload["reason"] ?? "ended")")
-            Task {
-                await ScreenCaptureManager.shared.stopCapture()
-            }
-
-        default:
-            break
+        if type == "remote_input", let input = json["input"] as? [String: Any] {
+            self.processRemoteInput(input)
         }
-    }
-
-    public func registerHost(deviceId: String, deviceName: String) {
-        let message: [String: Any] = [
-            "type": "register_host",
-            "payload": [
-                "deviceId": deviceId,
-                "deviceName": deviceName,
-                "os": "macos",
-                "resolution": [
-                    "width": 1920,
-                    "height": 1080
-                ]
-            ]
-        ]
-        send(message)
-    }
-
-    public func respondToRequest(requestId: String, approved: Bool) {
-        let message: [String: Any] = [
-            "type": "respond_connection",
-            "payload": [
-                "requestId": requestId,
-                "approved": approved
-            ]
-        ]
-        send(message)
     }
 
     private func processRemoteInput(_ input: [String: Any]) {
@@ -187,10 +157,6 @@ public class SignalingClient: NSObject {
               let string = String(data: data, encoding: .utf8) else {
             return
         }
-        webSocketTask?.send(.string(string)) { error in
-            if let error = error {
-                print("[Signaling] Send error: \(error)")
-            }
-        }
+        webSocketTask?.send(.string(string)) { _ in }
     }
 }

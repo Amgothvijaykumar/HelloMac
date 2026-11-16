@@ -74,3 +74,4 @@ public class ScreenCaptureManager: NSObject, SCStreamOutput, SCStreamDelegate {
         self.isCapturing = false
     }
 }
+

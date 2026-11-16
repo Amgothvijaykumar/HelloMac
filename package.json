@@ -1,21 +1,15 @@
 {
   "name": "remotelink",
-  "version": "1.1.0",
-  "description": "RemoteLink — Universal Cross-Platform Remote Desktop and Control Application",
+  "version": "1.2.0",
+  "description": "RemoteLink — 1-Click Zero-UI Screen Share and Remote Control",
   "scripts": {
-    "start": "concurrently \"npm run start:server\" \"npm run start:web\"",
-    "start:server": "cd server && npm start",
-    "start:web": "cd web && npm run dev",
-    "build": "cd web && npm run build",
+    "start": "./run.sh",
     "build:host": "cd macos-host && swift build"
   },
   "keywords": [
     "remote-desktop",
-    "webrtc",
     "screencapturekit",
-    "screen-sharing",
     "remote-control"
   ],
-  "author": "",
   "license": "MIT"
 }

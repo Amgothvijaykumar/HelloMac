@@ -26,7 +26,7 @@ let hostName = Host.current().localizedName ?? "MacBook Pro"
 let deviceId = "mac_" + UUID().uuidString.prefix(8).lowercased()
 
 // 3. Connect to Signaling Server
-let signalingUrlString = ProcessInfo.processInfo.environment["REMOTELINK_SIGNALING_URL"] ?? "ws://localhost:8080"
+let signalingUrlString = ProcessInfo.processInfo.environment["REMOTELINK_SIGNALING_URL"] ?? "ws://localhost:3000"
 guard let signalingUrl = URL(string: signalingUrlString) else {
     fatalError("Invalid signaling URL: \(signalingUrlString)")
 }
@@ -34,10 +34,6 @@ guard let signalingUrl = URL(string: signalingUrlString) else {
 let client = SignalingClient(serverURL: signalingUrl)
 client.connect()
 
-// Wait 500ms then register host
-DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-    client.registerHost(deviceId: deviceId, deviceName: hostName)
-}
-
 // Run loop
 dispatchMain()
+
