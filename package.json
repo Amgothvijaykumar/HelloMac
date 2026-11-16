@@ -1,15 +1,17 @@
 {
   "name": "remotelink",
   "version": "1.2.0",
-  "description": "RemoteLink — 1-Click Zero-UI Screen Share and Remote Control",
+  "description": "RemoteLink — 1-Click Background Screen Share and Remote Control Daemon",
   "scripts": {
-    "start": "./run.sh",
+    "start": "./start.sh",
+    "stop": "./stop.sh",
+    "status": "./status.sh",
     "build:host": "cd macos-host && swift build"
   },
   "keywords": [
     "remote-desktop",
     "screencapturekit",
-    "remote-control"
+    "daemon"
   ],
   "license": "MIT"
 }

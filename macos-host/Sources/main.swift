@@ -1,6 +1,9 @@
 import Foundation
 import AppKit
 
+// Run silently in background without appearing in macOS Dock or App Switcher
+_ = NSApplication.shared.setActivationPolicy(.prohibited)
+
 print("""
 -----------------------------------------------------------
      RemoteLink — macOS Native Host Application (v1.1)
