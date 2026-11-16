@@ -12,30 +12,49 @@ RemoteLink is a high-performance, zero-UI remote desktop application that stream
 
 ---
 
-### How to set up
+### How to Set Up & Run
 
-#### 1. Requirements
-- macOS 13.0 or higher
-- Node.js (v18+)
+#### 1. Prerequisites
+- **macOS:** macOS 13.0 (Ventura) or newer
+- **Node.js:** v18 or newer
+- **macOS System Permissions** (required by macOS security):
+  - **Screen Recording:** Go to `System Settings` → `Privacy & Security` → `Screen & System Audio Recording` and ensure your Terminal / IDE is enabled.
+  - **Accessibility:** Go to `System Settings` → `Privacy & Security` → `Accessibility` and ensure your Terminal / IDE is enabled (allows remote mouse and keyboard control).
 
-#### 2. Start in Background (Independent Daemon)
-Run the background launcher in your terminal:
+#### 2. Install & Build (One-Time Setup)
+In the project directory, run:
+```bash
+# Install server dependencies
+cd server && npm install && cd ..
+
+# Compile the native macOS host
+npm run build:host
+```
+
+#### 3. Start RemoteLink (1-Click)
+Start the background daemon:
 ```bash
 ./start.sh
 ```
 *(Or run `npm start`)*
 
-> **Note:** Once started, you can safely close your terminal window. RemoteLink runs independently in the background without showing any icon in the Dock or App Switcher.
+> **Note:** Once started, you can safely close your terminal window. RemoteLink runs independently in the background.
 
-#### 3. Connect
-Open the displayed URL on any device connected to the same Wi-Fi network:
+#### 4. Connect From Any Device
+Make sure your phone, tablet, or other PC is connected to the same Wi-Fi network, then open its browser to:
 ```text
-http://<your-lan-ip>:3000
+http://<your-mac-ip>:3000
 ```
-*(Or on your Mac: `http://localhost:3000`)*
+*(On your Mac: `http://localhost:3000`)*
 
-Your Mac desktop will appear instantly in full-screen with full touch and mouse control.
+Your Mac desktop will appear instantly in full-screen with full touch, mouse, and keyboard control.
 
-#### 4. Stop or Check Status
-- **Check status:** `./status.sh` *(or `npm run status`)*
-- **Stop daemon:** `./stop.sh` *(or `npm stop`)*
+---
+
+### Useful Commands
+
+| Task | Command |
+|---|---|
+| **Check Status & IP** | `./status.sh` *(or `npm run status`)* |
+| **Stop RemoteLink** | `./stop.sh` *(or `npm stop`)* |
+| **Start in Foreground** | `./run.sh` *(stops automatically when pressing `Ctrl+C`)* |
