@@ -132,14 +132,16 @@ const CLIENT_HTML = `<!DOCTYPE html>
       }
     }
 
-    // Mouse handlers
+    const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
+    // Mouse handlers (Desktop / Laptops)
     canvas.addEventListener('mousemove', (e) => {
       send('mouse_move', getNormalizedCoords(e.clientX, e.clientY));
     });
 
     canvas.addEventListener('mousedown', (e) => {
       e.preventDefault();
-      mobileInput.focus();
+      // On desktop, do not focus mobile input to avoid duplicate input events
       send('mouse_down', { button: e.button, ...getNormalizedCoords(e.clientX, e.clientY) });
     });
 
@@ -167,7 +169,9 @@ const CLIENT_HTML = `<!DOCTYPE html>
         const t = e.touches[0];
         lastTouch = { x: t.clientX, y: t.clientY };
         isTouching = true;
-        mobileInput.focus();
+        if (isTouchDevice && mobileInput) {
+          mobileInput.focus();
+        }
         const coords = getNormalizedCoords(t.clientX, t.clientY);
         send('mouse_move', coords);
         send('mouse_down', { button: 0, ...coords });
@@ -193,8 +197,11 @@ const CLIENT_HTML = `<!DOCTYPE html>
       }
     });
 
-    // Keyboard handlers for Desktop & Laptops
+    // Keyboard handlers for Desktop & Laptops (Physical Keyboard)
     window.addEventListener('keydown', (e) => {
+      // If mobileInput is focused, let mobile virtual keyboard handler take care of it
+      if (e.target === mobileInput) return;
+
       if (['Backspace', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
         e.preventDefault();
       }
@@ -206,6 +213,8 @@ const CLIENT_HTML = `<!DOCTYPE html>
     });
 
     window.addEventListener('keyup', (e) => {
+      if (e.target === mobileInput) return;
+
       send('key_up', {
         key: e.key,
         code: e.code,
@@ -213,25 +222,24 @@ const CLIENT_HTML = `<!DOCTYPE html>
       });
     });
 
-    // Mobile Virtual Keyboard Handling
-    mobileInput.addEventListener('beforeinput', (e) => {
-      if (e.inputType === 'deleteContentBackward') {
-        send('key_down', { key: 'Backspace', code: 'Backspace', modifiers: {} });
-        send('key_up', { key: 'Backspace', code: 'Backspace', modifiers: {} });
-      } else if (e.data) {
-        send('text_input', { text: e.data });
-      }
-    });
+    // Mobile Virtual Keyboard Handling (Touch Devices Only)
+    if (mobileInput) {
+      mobileInput.addEventListener('beforeinput', (e) => {
+        if (e.inputType === 'deleteContentBackward') {
+          send('key_down', { key: 'Backspace', code: 'Backspace', modifiers: {} });
+          send('key_up', { key: 'Backspace', code: 'Backspace', modifiers: {} });
+        } else if (e.data) {
+          send('text_input', { text: e.data });
+        }
+      });
 
-    mobileInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Backspace') {
-        send('key_down', { key: 'Backspace', code: 'Backspace', modifiers: {} });
-        send('key_up', { key: 'Backspace', code: 'Backspace', modifiers: {} });
-      } else if (e.key === 'Enter') {
-        send('key_down', { key: 'Enter', code: 'Enter', modifiers: {} });
-        send('key_up', { key: 'Enter', code: 'Enter', modifiers: {} });
-      }
-    });
+      mobileInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          send('key_down', { key: 'Enter', code: 'Enter', modifiers: {} });
+          send('key_up', { key: 'Enter', code: 'Enter', modifiers: {} });
+        }
+      });
+    }
   </script>
 </body>
 </html>`;
