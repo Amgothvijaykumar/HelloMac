@@ -13,6 +13,18 @@ lsof -ti :${PORT} | xargs kill -9 2>/dev/null || true
 pkill -f "remotelink-host" 2>/dev/null || true
 sleep 0.5
 
+# 1. Auto-install server dependencies on fresh clone
+if [ ! -d "server/node_modules" ]; then
+  echo "📦 First-time setup: Installing server dependencies..."
+  (cd server && npm install --silent)
+fi
+
+# 2. Auto-compile native macOS host on fresh clone
+if [ ! -f "macos-host/.build/debug/remotelink-host" ]; then
+  echo "🔨 First-time setup: Compiling native macOS host (one-time)..."
+  (cd macos-host && swift build)
+fi
+
 # Launch server completely detached from terminal session
 nohup node server/src/server.js > /tmp/remotelink-server.log 2>&1 &
 SERVER_PID=$!
